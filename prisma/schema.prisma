@@ -1,0 +1,80 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model FestivalCampaign {
+  id                  String                      @id @default(cuid())
+  communityId         String
+  key                 String                      @unique
+  name                String
+  descriptionMarkdown String
+  startAt             DateTime
+  endAt               DateTime
+  themeTagsJson       String                      @default("[]")
+  createdAt           DateTime                    @default(now())
+
+  tracks              FestivalTrack[]
+  participants        ParticipantFestivalState[]
+
+  @@index([communityId])
+  @@index([startAt, endAt])
+  @@map("festival_campaigns")
+}
+
+model FestivalTrack {
+  id                  String   @id @default(cuid())
+  campaignId          String
+  key                 String
+  name                String
+  descriptionMarkdown String
+  trackType           String   // 'challenge' | 'ritual_series' | 'content_series'
+  metaJson            String   @default("{}")
+  createdAt           DateTime @default(now())
+
+  campaign            FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actions             FestivalAction[]
+
+  @@unique([campaignId, key])
+  @@index([campaignId])
+  @@map("festival_tracks")
+}
+
+model FestivalAction {
+  id              String    @id @default(cuid())
+  trackId         String
+  orderIndex      Int
+  actionType      String    // 'quest' | 'ritual' | 'post' | 'live_session'
+  externalRefJson String    // Contains external system references
+  scheduledAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  track           FestivalTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@index([trackId])
+  @@index([scheduledAt])
+  @@map("festival_actions")
+}
+
+model ParticipantFestivalState {
+  id            String   @id @default(cuid())
+  campaignId    String
+  memberId      String
+  joinedAt      DateTime @default(now())
+  progressJson  String   @default("{}")
+  lastUpdatedAt DateTime @default(now()) @updatedAt
+
+  campaign      FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, memberId])
+  @@index([memberId])
+  @@index([campaignId])
+  @@map("participant_festival_states")
+}
