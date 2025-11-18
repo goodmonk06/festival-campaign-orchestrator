@@ -19,5 +19,24 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: festival-campaigns-app
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://festivaluser:festivalpass@postgres:5432/festival_campaigns?schema=public
+      CONTENT_CALENDAR_URL: http://localhost:3001
+      NOTIFICATION_HUB_URL: http://localhost:3002
+      RITUAL_ORCHESTRATOR_URL: http://localhost:3003
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && npm start"
+
 volumes:
   postgres_data:

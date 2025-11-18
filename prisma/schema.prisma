@@ -19,14 +19,80 @@ model FestivalCampaign {
   startAt             DateTime
   endAt               DateTime
   themeTagsJson       String                      @default("[]")
+  status              String                      @default("draft") // draft, active, completed, archived
+  templateId          String?
   createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
 
+  template            CampaignTemplate?           @relation("CampaignFromTemplate", fields: [templateId], references: [id])
   tracks              FestivalTrack[]
   participants        ParticipantFestivalState[]
+  analytics           CampaignAnalytics?
+  achievements        MemberAchievement[]
+  tags                CampaignTagRelation[]
+  integrationLogs     IntegrationLog[]
+  webhookDeliveries   WebhookDelivery[]
 
   @@index([communityId])
   @@index([startAt, endAt])
+  @@index([status])
+  @@index([templateId])
   @@map("festival_campaigns")
+}
+
+model CampaignTemplate {
+  id                  String   @id @default(cuid())
+  key                 String   @unique
+  name                String
+  descriptionMarkdown String
+  category            String   @default("general") // challenge, ritual, content, hybrid
+  configJson          String   @default("{}") // Template configuration
+  isPublic            Boolean  @default(true)
+  usageCount          Int      @default(0)
+  createdBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  campaigns           FestivalCampaign[] @relation("CampaignFromTemplate")
+  trackTemplates      TrackTemplate[]
+
+  @@index([category])
+  @@index([isPublic])
+  @@map("campaign_templates")
+}
+
+model TrackTemplate {
+  id                  String   @id @default(cuid())
+  templateId          String
+  key                 String
+  name                String
+  descriptionMarkdown String
+  trackType           String
+  metaJson            String   @default("{}")
+  orderIndex          Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  template            CampaignTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  actionTemplates     ActionTemplate[]
+
+  @@unique([templateId, key])
+  @@index([templateId])
+  @@map("track_templates")
+}
+
+model ActionTemplate {
+  id              String   @id @default(cuid())
+  trackTemplateId String
+  orderIndex      Int
+  actionType      String
+  externalRefJson String
+  scheduledOffset Int?     // Minutes offset from campaign start
+  createdAt       DateTime @default(now())
+
+  trackTemplate   TrackTemplate @relation(fields: [trackTemplateId], references: [id], onDelete: Cascade)
+
+  @@index([trackTemplateId])
+  @@map("action_templates")
 }
 
 model FestivalTrack {
@@ -37,7 +103,9 @@ model FestivalTrack {
   descriptionMarkdown String
   trackType           String   // 'challenge' | 'ritual_series' | 'content_series'
   metaJson            String   @default("{}")
+  orderIndex          Int      @default(0)
   createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   campaign            FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   actions             FestivalAction[]
@@ -54,12 +122,15 @@ model FestivalAction {
   actionType      String    // 'quest' | 'ritual' | 'post' | 'live_session'
   externalRefJson String    // Contains external system references
   scheduledAt     DateTime?
+  status          String    @default("pending") // pending, scheduled, completed, failed
   createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   track           FestivalTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
 
   @@index([trackId])
   @@index([scheduledAt])
+  @@index([status])
   @@map("festival_actions")
 }
 
@@ -69,6 +140,7 @@ model ParticipantFestivalState {
   memberId      String
   joinedAt      DateTime @default(now())
   progressJson  String   @default("{}")
+  status        String   @default("active") // active, completed, dropped
   lastUpdatedAt DateTime @default(now()) @updatedAt
 
   campaign      FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -76,5 +148,159 @@ model ParticipantFestivalState {
   @@unique([campaignId, memberId])
   @@index([memberId])
   @@index([campaignId])
+  @@index([status])
   @@map("participant_festival_states")
+}
+
+model CampaignAnalytics {
+  id                      String   @id @default(cuid())
+  campaignId              String   @unique
+  totalParticipants       Int      @default(0)
+  activeParticipants      Int      @default(0)
+  completedParticipants   Int      @default(0)
+  droppedParticipants     Int      @default(0)
+  totalActions            Int      @default(0)
+  completedActions        Int      @default(0)
+  averageCompletion       Float    @default(0)
+  engagementScore         Float    @default(0)
+  lastCalculatedAt        DateTime @default(now())
+  metricsJson             String   @default("{}")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  campaign                FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@map("campaign_analytics")
+}
+
+model MemberAchievement {
+  id                String   @id @default(cuid())
+  campaignId        String
+  memberId          String
+  achievementType   String   // track_completed, campaign_completed, streak, perfect_score
+  achievementKey    String
+  title             String
+  description       String
+  badgeImageUrl     String?
+  dataJson          String   @default("{}")
+  earnedAt          DateTime @default(now())
+
+  campaign          FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, memberId, achievementKey])
+  @@index([memberId])
+  @@index([campaignId])
+  @@index([achievementType])
+  @@map("member_achievements")
+}
+
+model CampaignTag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  color       String   @default("#6366f1")
+  createdAt   DateTime @default(now())
+
+  campaigns   CampaignTagRelation[]
+
+  @@map("campaign_tags")
+}
+
+model CampaignTagRelation {
+  id         String   @id @default(cuid())
+  campaignId String
+  tagId      String
+  createdAt  DateTime @default(now())
+
+  campaign   FestivalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  tag        CampaignTag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, tagId])
+  @@index([campaignId])
+  @@index([tagId])
+  @@map("campaign_tag_relations")
+}
+
+model NotificationLog {
+  id            String   @id @default(cuid())
+  recipientId   String
+  type          String
+  title         String
+  body          String
+  metadataJson  String   @default("{}")
+  status        String   @default("pending") // pending, sent, failed
+  sentAt        DateTime?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  @@index([recipientId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("notification_logs")
+}
+
+model IntegrationLog {
+  id            String   @id @default(cuid())
+  campaignId    String?
+  service       String   // content-calendar, notification-hub, ritual-orchestrator
+  operation     String   // schedule_content, send_notification, activate_ritual
+  requestJson   String
+  responseJson  String?
+  status        String   @default("pending") // pending, success, failed
+  errorMessage  String?
+  durationMs    Int?
+  createdAt     DateTime @default(now())
+
+  campaign      FestivalCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([service])
+  @@index([status])
+  @@index([createdAt])
+  @@map("integration_logs")
+}
+
+model WebhookSubscription {
+  id            String   @id @default(cuid())
+  subscriberId  String
+  url           String
+  events        String   @default("[]") // JSON array of event types
+  secret        String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  deliveries    WebhookDelivery[]
+
+  @@index([subscriberId])
+  @@index([isActive])
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  campaignId      String?
+  eventType       String
+  payloadJson     String
+  status          String   @default("pending") // pending, delivered, failed
+  attemptCount    Int      @default(0)
+  statusCode      Int?
+  responseBody    String?
+  errorMessage    String?
+  deliveredAt     DateTime?
+  createdAt       DateTime @default(now())
+  nextRetryAt     DateTime?
+
+  subscription    WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  campaign        FestivalCampaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([subscriptionId])
+  @@index([campaignId])
+  @@index([status])
+  @@index([nextRetryAt])
+  @@index([createdAt])
+  @@map("webhook_deliveries")
 }

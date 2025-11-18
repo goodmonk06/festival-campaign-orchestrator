@@ -2,7 +2,10 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { updateProgressSchema } from '@/lib/validations';
 import { successResponse, errorResponse, handleApiError } from '@/lib/api-utils';
+import { achievementService } from '@/lib/services/achievement-service';
+import { eventBus } from '@/lib/events/event-bus';
 import type { ParticipantProgress, ActionProgress } from '@/types/festival';
+import type { ProgressUpdatedEvent } from '@/lib/events/types';
 
 // POST /api/participants/progress - Update participant progress
 export async function POST(request: NextRequest) {
@@ -90,6 +93,33 @@ export async function POST(request: NextRequest) {
           },
         },
       },
+    });
+
+    // Emit progress updated event
+    const totalActions = updated.campaign.tracks.reduce(
+      (sum, track) => sum + track.actions.length,
+      0
+    );
+    const progressPercentage =
+      totalActions > 0 ? (currentProgress.totalActionsCompleted / totalActions) * 100 : 0;
+
+    const progressEvent: ProgressUpdatedEvent = {
+      type: 'progress.updated',
+      timestamp: new Date(),
+      data: {
+        campaignId,
+        memberId,
+        actionId,
+        completed,
+        progressPercentage,
+      },
+    };
+
+    await eventBus.emit(progressEvent);
+
+    // Check for new achievements (async, don't block response)
+    achievementService.checkAndAwardAchievements(campaignId, memberId).catch((error) => {
+      console.error('Failed to check achievements:', error);
     });
 
     return successResponse(updated);
